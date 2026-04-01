@@ -1,0 +1,403 @@
+(function (factory) {
+	typeof define === 'function' && define.amd ? define(['jquery'], factory) : factory(jQuery);
+})(function ($) {
+	let alert, confirm, modalBox;
+	const modalBoxList = [];
+	const today = '.flatpickr-day.today:visible';
+	const daySelectedElement = ['.flatpickr-day.endRange:visible', '.flatpickr-day.startRange:visible', '.flatpickr-day.selected:visible'];
+	const daySelected = function (daySelectedElement) {
+		return $.map(daySelectedElement, function (selector, index) {
+			if ($('#calendar').find(selector).length > 0) {
+				return selector;
+			}
+		});
+	};
+
+	const content = {
+		insert: function (type, {data = '', onOpened = $.noop, escClose = false}) {
+			$('body').addClass('is-modal');
+			console.log(data);
+
+			if (modalBoxList.length > 1 || type != 'modalBox') {
+				$('#modal').children().addClass('display-none');
+			}
+
+			$('#modal')
+				.append(data)
+				.trigger('modalOpened', [$('#modal').children(':visible'), {type: type, escClose: escClose, onOpened: onOpened}]);
+
+			if ($('#modal').find('.modal-title:visible').length) {
+				contentHeight($('#modal').find('.modal-title:visible'));
+			}
+
+			$('.modal-content:visible').on('scroll.modalBox', function () {
+				$.flyingFocusActive();
+			});
+		},
+		remove: function (type, {data = undefined, dataPosition = undefined, focusElement = undefined, onClosed = $.noop}) {
+			if (!$('body').hasClass('is-modal')) return;
+
+			if (dataPosition) {
+				if (type == 'modalBox') {
+					$('#modal').children(':last-child').removeAttr('tabindex').removeClass('display-none');
+					$('.modal-content:visible').off('scroll.modalBox');
+					dataPosition?.replaceWith(data);
+				} else {
+					$('#modal').children().removeClass('display-none').removeAttr('tabindex').end();
+					dataPosition?.forEach((x, i) => {
+						x.replaceWith(data[i]);
+					});
+				}
+			}
+
+			if (type == 'modalBox' && modalBoxList.length) {
+				$('#modal').children(':last-child').removeClass('display-none').end().trigger('modalClosed', [focusElement, onClosed]);
+			} else {
+				$('#modal').empty().trigger('modalClosed', [focusElement, onClosed]);
+			}
+		},
+	};
+
+	const close = {
+		action: function (event) {
+			event.stopPropagation();
+			event.preventDefault();
+			modalBox.close();
+		},
+		escKeyup: function (event) {
+			if ($('#modal .alert').length || $('#modal .confirm').length || !event.data.escClose) return;
+			if ((event.key === 'Esc' || event.key === 'Escape') && $('#modal').is(':visible')) {
+				event.preventDefault();
+				close.action(event);
+			}
+		},
+		on: function (type, escClose, element) {
+			$(document).on('keyup.modalClose', {modalType: type, escClose: escClose}, close.escKeyup);
+			element.one('click.modalClose', '.modal-close', {modalType: type}, close.action);
+		},
+		off: function () {
+			if (!modalBoxList.length) {
+				$('body').removeClass('is-modal');
+				$(document).off('keyup.modalClose keydown.modalBox');
+				modalBox.close = $.noop;
+			} else {
+				modalBox.close = modalBoxList[modalBoxList.length - 1].modalClose;
+			}
+		},
+		init: function () {
+			if ($('#modal .alert').length) {
+				alert.close();
+			}
+
+			if ($('#modal .confirm').length) {
+				confirm.close();
+			}
+		},
+	};
+
+	const focusLock = {
+		action: function (event, focusFirstElement, focusLastElement, focusElements) {
+			if (event.key === 'Tab' && event.shiftKey) {
+				const selected = daySelected(daySelectedElement);
+
+				console.log(focusElements);
+				focusElements.each(function (i, v) {
+					const activeElement = document.activeElement == v;
+					const FirstElement = document.activeElement == focusFirstElement;
+					const prevDatepickerElement = $(focusElements[i - 1]).hasClass('flatpickr-day');
+					const datepickerInput = $(document.activeElement).hasClass('form-datepicker');
+					const datepickerElementFocus = $(v).hasClass('flatpickr-day');
+
+					if (activeElement && prevDatepickerElement) {
+						event.preventDefault();
+
+						$(selected[0])?.focus();
+						$('#calendar').find('.flatpickr-day:not(.hidden, .flatpickr-disabled)')[0]?.focus();
+						$('#calendar').find(today)?.focus();
+					}
+
+					if (datepickerInput && datepickerElementFocus) {
+						event.preventDefault();
+						$(focusElements[i - 1]).focus();
+					}
+
+					if (FirstElement) {
+						event.preventDefault();
+						$(focusElements[focusElements.length - 1]).focus();
+					}
+				});
+			} else if (event.key === 'Tab') {
+				const selected = daySelected(daySelectedElement);
+
+				focusElements.each(function (i, v) {
+					const activeElement = document.activeElement == v;
+					const lastElement = document.activeElement == focusLastElement;
+					const nextDatepickerElement = $(focusElements[i + 1]).hasClass('flatpickr-day');
+
+					if (activeElement && nextDatepickerElement) {
+						event.preventDefault();
+
+						$(selected[0])?.focus();
+						$('#calendar').find('.flatpickr-day:not(.hidden, .flatpickr-disabled)')[0]?.focus();
+						$('#calendar').find(today)?.focus();
+					}
+
+					if (lastElement) {
+						event.preventDefault();
+						$(focusElements[0]).focus();
+					}
+				});
+			}
+		},
+		on: function () {
+			const element = ['a:visible', 'button:visible', 'input:visible:not(.cur-year)', 'select:visible', '.flatpickr-day.startRange:visible', '.flatpickr-day.today:visible'];
+			let focusElements;
+			let focusElementAmount;
+			let focusFirstElement;
+			let focusLastElement;
+
+			$(window)
+				.off('resize.modalBoxFocus')
+				.on('resize.modalBoxFocus', function () {
+					focusElements = $('#modal').find(element.join(','));
+					focusElementAmount = focusElements.length;
+					focusFirstElement = focusElements[0];
+					focusLastElement = focusElements[focusElementAmount - 1];
+				})
+				.trigger('resize.modalBoxFocus');
+
+			$(document)
+				.off('keydown.modalBox')
+				.on('keydown.modalBox', function (e) {
+					focusLock.action(e, focusFirstElement, focusLastElement, focusElements);
+				});
+		},
+	};
+
+	function contentHeight(title) {
+		const titleHeight = title.innerHeight();
+
+		if (titleHeight == 60) return;
+		if (
+			title
+				.parent()
+				.attr('class')
+				.match(/calendar|citypair/g)
+		) {
+			const citySelectHeight = title.parent().hasClass('modal-box--citypair') ? titleHeight + $('.bookTicketSelect').outerHeight(true) : titleHeight;
+			$('.modal-content').css('max-height', 'calc(100vh - ' + citySelectHeight + 'px)');
+		} else {
+			$('.modal-content').css('max-height', 'calc(80vh - ' + titleHeight + 'px)');
+		}
+	}
+
+	if (!$('#modal').length) {
+		$('body').append('<div id="modal" class="modal" aria-modal="true"/>');
+	}
+
+	$(window)
+		.off('resize.modal')
+		.on('resize.modal', function () {
+			if ($('#modal').find('.modal-title').length) {
+				contentHeight($('#modal').find('.modal-title'));
+			}
+		});
+
+	$('#modal')
+		.on('modalClosed', function (event, focusElement, onClosed) {
+			modalBoxList.splice(-1, 1);
+			close.off();
+			onClosed?.();
+			focusElement.focus();
+		})
+		.on('modalOpened', function (event, element, options) {
+			close.on(options.type, options.escClose, element);
+			focusLock.on();
+			options.onOpened?.();
+			element.attr('tabindex', -1).focus();
+		});
+
+	function useP(text) {
+		const hasHtml = /<\/?[^>]+>/.test(text || '');
+		// console.log(hasHtml);
+		return (
+			!hasHtml ||
+			!text
+				.match(/<(\w+)/g)
+				.map(function (x) {
+					return x.substr(1);
+				})
+				.filter(function (v, idx, self) {
+					return self.indexOf(v) === idx;
+				})
+				.filter(function (x) {
+					return !~['em', 'strong', 'br', 'pre', 'a', 'span', 'img', 'input', 'label'].indexOf(x);
+				}).length
+		);
+	}
+
+	alert = $.alert = function (options) {
+		const deferred = $.Deferred();
+		const setting = $.extend(
+			{},
+			{
+				state: '',
+				title: '',
+				message: '',
+				btnText: 'OK',
+			},
+			options
+		);
+		const state = {
+			title: setting.state !== '' ? setting.title : '',
+			messageStyle: setting.state !== '' ? 'alert-description--state' : '',
+		};
+		const nodeMessage = $('<div class="editor editor--mainInformation alert-description" />')
+			.addClass(state.messageStyle)
+			.append($(useP(setting.message) ? '<p>' + setting.message + '</p>' : setting.message));
+		const modalContent = $('<div class="modal-content modal-content--system modal-content--system--alert" />');
+		const node = $.map(
+			{
+				title: setting.state !== '' ? '<h1 class="alert-title alert-title--' + setting.state + '">' + state.title + '</h1>' : '',
+				message: nodeMessage,
+				btn: '<div class="btnBlock"><button type="button" class="btn btn--lg btn--green alert-confirm">' + setting.btnText + '</button></div>',
+			},
+			function (val, key) {
+				if (key != 'btn') {
+					modalContent.append(val);
+				} else {
+					return $(val);
+				}
+			}
+		);
+		const template = $('<div class="alert" role="alert">').append(modalContent).append(node);
+		const focusElement = document.activeElement;
+
+		alert.close = function (focusElement) {
+			const dataPosition = modalBoxList.map((x) => x.dataPosition);
+			const data = modalBoxList.map((x) => x.data);
+
+			alert.close = $.noop;
+			content.remove('alert', {dataPosition: dataPosition, data: data, focusElement: focusElement});
+		};
+
+		close.init();
+		content.insert('alert', {data: template});
+
+		template.on('click', '.alert-confirm', function (e) {
+			alert.close(focusElement);
+			deferred.resolve();
+		});
+
+		return deferred.promise();
+	};
+
+	confirm = $.confirm = function (options) {
+		const deferred = $.Deferred();
+		const setting = $.extend(
+			true,
+			{
+				message: '',
+				task: '',
+				note: '',
+				btnText: {
+					yes: 'OK',
+					no: 'Cancel',
+				},
+			},
+			options
+		);
+		const nodeMessage = $('<div class="modal-content modal-content--system modal-content--system--confirm">').append($('<div class="editor editor--mainInformation confirm-message">' + (useP(setting.message) ? '<p>' + setting.message + '</p>' : setting.message) + '</div>'));
+		const nodeBtn = $('<div class="btnBlock">').append(
+			$.map(
+				{
+					no: '<button type="button" class="btn btn--lg btn--transparent--green confirm-no">' + setting.btnText.no + '</button>',
+					ok: '<button type="button" class="btn btn--lg btn--green confirm-ok">' + setting.btnText.yes + '</button>',
+				},
+				function (val, key) {
+					if (key != 'wrap') {
+						return val;
+					}
+				}
+			).join('')
+		);
+		const template = $('<div class="confirm" role="alertdialog">').append(nodeMessage).append(nodeBtn);
+		const focusElement = document.activeElement;
+
+		confirm.close = function (success, focusElement) {
+			const dataPosition = modalBoxList.map((x) => x.dataPosition);
+			const data = modalBoxList.map((x) => x.data);
+
+			confirm.close = $.noop;
+			content.remove('confirm', {dataPosition: dataPosition, data: data, focusElement: focusElement});
+			success ? deferred.resolve() : deferred.reject();
+		};
+
+		close.init();
+		content.insert('confirm', {data: template});
+
+		template
+			.on('click', '.confirm-ok', function (e) {
+				$.confirm.close(true, focusElement);
+			})
+			.on('click', '.confirm-no', function (e) {
+				$.confirm.close(false, focusElement);
+			});
+
+		return deferred.promise();
+	};
+
+	modalBox =
+		$.fn.modalBox =
+		$.modalBox =
+			function (options) {
+				const setting = $.extend(
+					{
+						target: '' || this.attr('href'),
+						escClose: true,
+						onOpened: $.noop,
+						onClosed: $.noop,
+					},
+					options
+				);
+
+				const replaceContent = function (setting) {
+					const dataPosition = $('<div data-target="' + setting.target + '">').insertBefore($(setting.target));
+					const data = $(setting.target).eq(0);
+					const focusElement = document.activeElement;
+
+					modalBoxList.push({
+						data: data,
+						dataPosition: dataPosition,
+						escClose: setting.escClose,
+						onOpened: setting.onOpened,
+						onClosed: setting.onClosed,
+						focusElement: focusElement,
+						modalClose: function () {
+							content.remove('modalBox', {dataPosition: dataPosition, data: data, focusElement: focusElement, onClosed: setting.onClosed});
+						},
+					});
+
+					content.insert('modalBox', {data: data, escClose: setting.escClose, onOpened: setting.onOpened});
+
+					modalBox.close = modalBoxList[modalBoxList.length - 1].modalClose;
+				};
+
+				if ($.isFunction(this)) {
+					replaceContent(setting);
+				} else {
+					this.each(function () {
+						$(this).on('click', function (e) {
+							replaceContent(setting);
+							e.preventDefault();
+						});
+					});
+
+					return this;
+				}
+			};
+
+	modalBox.close = $.noop;
+	alert.close = $.noop;
+	confirm.close = $.noop;
+});

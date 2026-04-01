@@ -1,0 +1,1138 @@
+(function (factory) {
+  typeof define === 'function' && define.amd ? define(['jquery'], factory) : factory(jQuery);
+})(function ($) {
+  const loadingBehavior = /safari/i.test(navigator.userAgent)
+    ? {
+      show: 'show',
+      time: 0,
+      beforeunload: function () {
+        $.loading(false);
+        return '';
+      }
+    }
+    : {
+      show: 'fadeIn',
+      time: 200,
+      beforeunload: function () {
+        clearTimeout($('body').data('_load_'));
+        return '';
+      }
+    };
+
+  $.beforeunload = function (f) {
+    window.onbeforeunload = typeof f === typeof undefined || f ? loadingBehavior.beforeunload : null;
+  };
+
+  $.loading = function (f) {
+    const load = $('#js-loading').attr('tabindex', '-1');
+    if (!load.length) {
+      return;
+    }
+
+    const hasBlockUI = !!$.blockUI;
+    const show = typeof f === typeof undefined || f;
+
+    let div = load.data('placeholder');
+    if (hasBlockUI && !div) {
+      if (show) {
+        $.blockUI({
+          message: load,
+          fadeIn: loadingBehavior.time,
+          onBlock: function () {
+            show.focus && load.focus();
+          }
+        });
+      } else {
+        $.unblockUI();
+      }
+    } else {
+      require(['blockUI']);
+      if (show) {
+        if (!div) {
+          div = $('<div>');
+          load.data('placeholder', div).after(div);
+        }
+        load
+          .hide()
+          .appendTo('body')
+          [loadingBehavior.show]()
+          .promise()
+          .done(function () {
+            show.focus && load.focus();
+          });
+      } else {
+        if (div) {
+          load.insertAfter(div);
+          load.data('placeholder', false);
+          div.remove();
+        }
+      }
+    }
+  };
+
+  $(window).on('pageshow', function (e) {
+    if (!e.originalEvent.persisted) {
+      return;
+    }
+    $.loading(false);
+  });
+
+  $.webMethod = function (method, param) {
+    return $.ajax({
+      type: 'POST',
+      url: location.pathname + '/' + method,
+      data: JSON.stringify(param),
+      contentType: 'application/json; charset=utf-8',
+      dataType: 'json'
+    }).then(function (d) {
+      return d.d;
+    });
+  };
+
+  $.uniqueID = (function () {
+    let i = 0;
+    return function (prefix) {
+      return prefix + '-' + i++;
+    };
+  })();
+
+  $.fn.describedBy = function () {
+    return $.trim(this.attr('aria-describedby'))
+      .split(/\s+/)
+      .filter(function (x) {
+        return x;
+      });
+  };
+  $.fn.addDescribedBy = function (v) {
+    return this.removeDescribedBy(v).attr('aria-describedby', function () {
+      return $(this)
+        .describedBy()
+        .concat(v)
+        .join(' ');
+    });
+  };
+  $.fn.removeDescribedBy = function (v) {
+    return this.attr('aria-describedby', function () {
+      return $(this)
+        .describedBy()
+        .filter(function (x) {
+          return x !== v;
+        })
+        .join(' ');
+    });
+  };
+
+  $.xmlToObject = function (xml) {
+    return $($(xml).children()[0])
+      .children()
+      .map(function () {
+        return $(this)
+          .children()
+          .get()
+          .filter(function (node) {
+            return node.nodeType === 1;
+          })
+          .reduce(function (obj, node) {
+            obj[node.tagName] = $(node).text();
+            return obj;
+          }, {});
+      })
+      .get();
+  };
+
+  const now = new Date();
+  $.serverNow = function (server, client) {
+    client = new Date(client);
+    server = new Date(server);
+    client = isNaN(client) ? new Date() : client;
+    server = isNaN(server) ? client : server;
+    const adj = server - client;
+    return function () {
+      return new Date(new Date().getTime() + adj);
+    };
+  };
+
+  const $p = $('<p>');
+  $.htmlEncode = $.htmlencode = function (str) {
+    return $p.text(str).html();
+  };
+  $.value = function () {
+    return [].slice.call(arguments).reduce(function (a, c) {
+      return typeof a === 'undefined' ? undefined : a[c];
+    });
+  };
+
+  $.fn.carousel = function (method) {
+    // options
+    if (typeof method !== 'string') {
+      return this.each(function () {
+        $.carousel($.extend({}, method, {target: this}));
+      });
+    }
+  };
+  $.carousel = function (options) {
+    options = $.extend(
+      true,
+      {
+        carousel: {
+          nav: false,
+          dots: true,
+          loop: true,
+          autoplay: true,
+          animateOut: 'fadeOut',
+          items: 1
+        }
+      },
+      options || {}
+    );
+    const carousel = options.carousel;
+    const target = $(options.target);
+    options = $.extend(
+      true,
+      {
+        pauseText: '',
+        playText: '',
+        controlPosition: '',
+        carousel: {
+          nav: carousel.nav,
+          dots: carousel.dots,
+          loop: carousel.loop,
+          autoplay: carousel.autoplay,
+          animateOut: carousel.animateOut,
+          items: carousel.items
+        }
+      },
+      options
+    );
+
+    const btnControl = '<div class="carousel-controlBg"><button type="button" role="button" class="carousel-control" value="pause">' + options.pauseText + '</button></div>';
+    const owl = target.length ? target : $('.carousel-container');
+    const controlPosition = options.controlPosition;
+    let isTrigger = false;
+
+    function controlBoxPosition (owl, controlPosition) {
+      if (controlPosition) {
+        owl.find('.carousel-controlBox').addClass('carousel-controlBox--position');
+      } else {
+        const controlH = owl.find('.carousel-controlBox').innerHeight();
+        owl.find('.carousel-controlBox').css('margin-top', -controlH - 15);
+      }
+    }
+
+    owl.each(function () {
+      const container = $(this);
+      const imgs = container.find('.carousel-media').length;
+      if (imgs && !target.length) {
+        if (imgs < 2) {
+          options.carousel.autoplay = false;
+          options.carousel.dots = false;
+          options.carousel.loop = false;
+        } else {
+          options.carousel.autoplay = carousel.autoplay;
+          options.carousel.dots = carousel.dots;
+          options.carousel.loop = carousel.loop;
+        }
+      } else {
+        if (imgs > 0 && imgs < 2) {
+          options.carousel.autoplay = false;
+          options.carousel.dots = false;
+          options.carousel.loop = false;
+        }
+      }
+
+      container.on('click', '.owl-dot', function () {
+        if (container.find('.carousel-control').val() == 'pause') {
+          container.find('.carousel-control').val('play');
+          container.find('.carousel-control').text(options.playText);
+          container.trigger('stop.owl.autoplay');
+        }
+
+        isTrigger = true;
+      });
+
+      container
+        .on('click', '.carousel-control', function () {
+          if ($(this).val() == 'pause') {
+            $(this).val('play');
+            $(this).text(options.playText);
+            container.trigger('stop.owl.autoplay');
+          } else {
+            $(this).val('pause');
+            $(this).text(options.pauseText);
+            container.trigger('play.owl.autoplay', [5000]);
+          }
+        })
+        .on('initialized.owl.carousel', function (e) {
+          const item = e.item.count;
+          container.find('.owl-item.active a').removeAttr('tabindex');
+          if (item < 2 || !options.carousel.dots) return;
+          setTimeout(function () {
+            if (options.carousel.autoplay) {
+              container
+                .find('.owl-dots')
+                .wrap('<div class="carousel-controlBox"></div>')
+                .after(btnControl);
+            } else {
+              container.find('.owl-dots').wrap('<div class="carousel-controlBox"></div>');
+              container.find('.owl-dot').each(function (index) {
+                $(this).prepend('<span class="sr-only">' + (index + 1) + '</span>');
+              });
+            }
+
+            $('[role="presentation"]').attr('tabindex', function (i, val) {
+              return $(this).hasClass('disabled') ? -1 : '';
+            });
+
+            controlBoxPosition(container, controlPosition);
+          }, 10);
+        })
+        .on('resized.owl.carousel', function (e) {
+          controlBoxPosition(container, controlPosition);
+        })
+        .on('translated.owl.carousel', function (e) {
+          const items = e.page.size;
+          // const activeItem = e.item.index;
+          $('[role="presentation"]').attr('tabindex', function (i, val) {
+            return $(this).hasClass('disabled') ? -1 : '';
+          });
+          if (container.find('.owl-item a').length) {
+            container.find('.owl-item a').attr('tabindex', '-1');
+
+            if (items == 1) {
+              container
+                .find('.owl-item.active a')
+                .removeAttr('tabindex')
+                .focus();
+            } else {
+              container.find('.owl-item.active a').removeAttr('tabindex');
+              container.find('.owl-item.active:first a').focus();
+            }
+          }
+          isTrigger = false;
+        })
+        .owlCarousel(options.carousel);
+    });
+  };
+
+  function listFilterResize () {
+    if ($(this).outerWidth() > 600) {
+      $('.filter-content').removeClass('display-none');
+    } else {
+      $('.filter-content').addClass('display-none');
+    }
+  }
+  $.listFilter = function () {
+    const checked = function () {
+      return $('.filter-item .form-inputCheckbox').each(function () {
+        $(this).on('change', function () {
+          if ($('.filter-item .form-inputCheckbox').is(':checked')) {
+            $('.filter-switch ').addClass('is-filter');
+          } else {
+            $('.filter-switch ').removeClass('is-filter');
+          }
+        });
+      });
+    };
+
+    const togglePanel = function () {
+      $('.js-filter-switch').each(function () {
+        $(this).on('click', function () {
+          $(this)
+            .next()
+            .toggleClass('display-none');
+        });
+      });
+
+      $(window)
+        .off('resize', listFilterResize)
+        .on('resize', listFilterResize);
+      listFilterResize.call(window);
+    };
+
+    checked();
+    togglePanel();
+  };
+
+  $.selectLink = function () {
+    const link = $('.tab--page').is(':visible') ? $('.tab-item--page--active').attr('href') : $('.pagination').is(':visible') ? $('.pagination-active').attr('href') : '';
+    const active = $('[value="' + link + '"]').index();
+
+    $('.js-selectLink')
+      .on('change', function () {
+        const url = $(this).val();
+        location.href = url;
+      })
+      .children()
+      .eq(active)
+      .prop('selected', true)
+      .siblings()
+      .removeProp('selected', true);
+  };
+
+  $.messageClose = function () {
+    return $('.message-close').on('click', function (e) {
+      $(this)
+        .closest('.message')
+        .remove();
+    });
+  };
+
+  $.messageClose();
+
+  const list = [];
+  let elements = [];
+  $.equalHeight = function (row, wrapSelector) {
+    let outerWidth = $(window).outerWidth();
+    let outerHeight = $(window).outerHeight();
+    const requestAnimationFrame = window.requestAnimationFrame || window.mozRequestAnimationFrame || window.webkitRequestAnimationFrame || window.msRequestAnimationFrame;
+    window.requestAnimationFrame = requestAnimationFrame;
+    const wrap = wrapSelector || '.js-equalHeightWrap';
+    const height = {
+      get: function (row, wrap) {
+        // console.log($(wrap));
+        var all = [];
+        $(wrap).each(function (index, element) {
+          var temp = [];
+          var groupHeight = [];
+          var total = $(this).find('.js-equalHeight').length;
+
+          $(this)
+            .find('.js-equalHeight')
+            .each(function (index, element) {
+              temp.push($(this).height());
+              if ((index + 1) % row == 0) {
+                groupHeight.push(temp);
+                temp = [];
+              } else if (index + 1 == total) {
+                groupHeight.push(temp);
+              }
+            });
+          all.push(groupHeight);
+        });
+        return all;
+      },
+      set: function (row, wrap, heights) {
+        $(wrap).each(function (index, element) {
+          var itemHeight = heights[index];
+          var counter = 0;
+
+          $(this)
+            .find('.js-equalHeight')
+            .each(function (index, element) {
+              var height = Math.max.apply(this, itemHeight[counter]);
+              $(this).height(height);
+
+              if ((index + 1) % row == 0) {
+                counter++;
+              }
+            });
+        });
+      }
+    };
+    const rows = function (listRow, windowWidth) {
+      if (typeof listRow === 'object') {
+        let currentWidth = 0;
+        let resizeRow;
+
+        $.each(listRow, function (row, width) {
+          width = width == null ? 10000 : width;
+          if (resizeRow && currentWidth < width) return;
+          // console.log({row, resizeRow, width, currentWidth, windowWidth});
+
+          if (windowWidth <= width) {
+            resizeRow = parseInt(row);
+          }
+
+          currentWidth = width;
+        });
+
+        return resizeRow;
+      } else {
+        return listRow;
+      }
+    };
+    const resize = function equalHeightResize (item, height, requestAnimationFrame, timer) {
+      const windowWidth = $(this).outerWidth();
+      const listRow = item.listRow;
+      const row = item.row;
+      const wrap = item.wrap;
+
+      $(wrap)
+        .find('.js-equalHeight')
+        .removeAttr('style');
+
+      // console.log('start: ' + timer);
+
+      if (timer) {
+        cancelAnimationFrame(timer);
+      }
+
+      timer = requestAnimationFrame(function () {
+        // console.log({listRow, row, wrap});
+        const heights = height.get(row, wrap);
+
+        if (listRow) {
+          height.set(row, wrap, heights);
+        } else {
+          if (windowWidth >= 600) {
+            height.set(row, wrap, heights);
+          }
+        }
+
+        // console.log('run: ' + timer);
+
+        cancelAnimationFrame(timer);
+      });
+
+      // console.log('end: ' + timer);
+    };
+    let timer = null;
+
+    list.push({row: row, wrap: $(wrap)});
+
+    $(window)
+      .off('resize.equalHeight')
+      .on('resize.equalHeight', function () {
+        const windowWidth = $(this).outerWidth();
+        const windowHeight = $(this).outerHeight();
+
+        if ((windowWidth == outerWidth && windowHeight != outerHeight) || (windowWidth != outerWidth && windowWidth > 1280 && outerWidth > 1280)) {
+          outerWidth = windowWidth;
+          outerHeight = windowHeight;
+          return;
+        }
+
+        if (elements.length != list.length) {
+          const wrap = list[list.length - 1]['wrap'][0];
+          const listRow = list[list.length - 1]['row'];
+          const item = {
+            row: rows(listRow, windowWidth),
+            wrap: wrap,
+            listRow: typeof listRow === 'object'
+          };
+
+          resize(item, height, requestAnimationFrame, timer);
+
+          elements = elements.concat($(wrap).get());
+        } else {
+          $.each(list, function (index, value) {
+            const wrap = value['wrap'][0];
+            const item = {
+              row: rows(value['row'], windowWidth),
+              wrap: wrap,
+              listRow: typeof value['row'] === 'object'
+            };
+
+            resize(item, height, requestAnimationFrame, timer);
+          });
+        }
+
+        outerWidth = windowWidth;
+        outerHeight = windowHeight;
+      })
+      .trigger('resize.equalHeight');
+  };
+
+  $.fn.equalHeight = function (row, wrapSelector) {
+    $.equalHeight(row, wrapSelector);
+  };
+
+  function passengerContent (selector, item) {
+    if (
+      $('.passengerChoose-item')
+        .eq(item)
+        .find(selector).length
+    ) {
+      return $('.passengerChoose-item')
+        .eq(item)
+        .find(selector)
+        .html();
+    } else {
+      return '';
+    }
+  };
+  function passengerOnKey (selector) {
+    $(selector).on('keyup.passenger keydown.passenger', function (e) {
+      if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+        e.preventDefault();
+        if (e.type == 'keyup') {
+          $(this).trigger('keyNext');
+        }
+      } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (e.type == 'keyup') {
+          $(this).trigger('keyPrev');
+        }
+      }
+    });
+  };
+  function passengerSelect (item) {
+    $('.js-passengerSelect')
+      .children()
+      .prop('selected', false)
+      .eq(item)
+      .prop('selected', true)
+      .trigger('change.passenger', ['isTrigger']);
+  };
+  function passengerSelectFixed () {
+    const fixedTarget = $('.passengerChoose-selectFixed');
+    const watchTarget = $('.passengerChoose-selectInfo')[0];
+    const observer = {
+      onEntry: function (entry, observe) {
+        const entryValue = {
+          boundingClientRectTop: entry[0].boundingClientRect.top,
+          boundingClientRectHeight: entry[0].boundingClientRect.height,
+          intersectionRatio: entry[0].intersectionRatio
+        };
+        const visibledDown = entryValue.boundingClientRectTop < entryValue.boundingClientRectHeight && entryValue.intersectionRatio < 1;
+
+        // console.log(entry)
+
+        if (visibledDown) {
+          fixedTarget.addClass('js-passengerChooseFixed');
+        } else {
+          fixedTarget.removeClass('js-passengerChooseFixed');
+        }
+      },
+      options: {
+        threshold: 1
+      }
+    };
+    const observerSelectinfo = new IntersectionObserver(observer.onEntry, observer.options);
+
+    observerSelectinfo.observe(watchTarget);
+  };
+  $.passengerChoose = function () {
+    const keyEvent = {
+      action: function (selector, direction, item) {
+        if (direction == 'next') {
+          if (item == 0) {
+            $(selector)
+              .parent()
+              .children()
+              .eq(0)
+              .attr({'aria-checked': true, tabindex: 0})
+              .focus()
+              .siblings()
+              .attr({'aria-checked': false, tabindex: -1});
+            passengerSelect(0);
+          } else if (item == 1) {
+            $($(selector).nextAll()[1])
+              .attr({'aria-checked': true, tabindex: 0})
+              .focus()
+              .siblings()
+              .attr({'aria-checked': false, tabindex: -1});
+            passengerSelect($($(selector).nextAll()[1]).index());
+          } else {
+            $(selector)
+              .next()
+              .attr({'aria-checked': true, tabindex: 0})
+              .focus()
+              .siblings()
+              .attr({'aria-checked': false, tabindex: -1});
+            passengerSelect(
+              $(selector)
+                .next()
+                .index()
+            );
+          }
+        } else {
+          if (item == 0) {
+            $(selector)
+              .parent()
+              .children()
+              .last()
+              .attr({'aria-checked': true, tabindex: 0})
+              .focus()
+              .siblings()
+              .attr({'aria-checked': false, tabindex: -1});
+            passengerSelect(
+              $(selector)
+                .parent()
+                .children()
+                .last()
+                .index()
+            );
+          } else if (item == 1) {
+            $($(selector).prevAll()[1])
+              .attr({'aria-checked': true, tabindex: 0})
+              .focus()
+              .siblings()
+              .attr({'aria-checked': false, tabindex: -1});
+            passengerSelect($($(selector).prevAll()[1]).index());
+          } else {
+            $(selector)
+              .prev()
+              .attr({'aria-checked': true, tabindex: 0})
+              .focus()
+              .siblings()
+              .attr({'aria-checked': false, tabindex: -1});
+            passengerSelect(
+              $(selector)
+                .prev()
+                .index()
+            );
+          }
+        }
+      },
+      next: function (selector) {
+        if (!$(selector).next().length) {
+          keyEvent.action(selector, 'next', 0);
+        } else if (
+          $(selector)
+            .next()
+            .attr('aria-disabled')
+        ) {
+          if (
+            $(selector)
+              .next()
+              .is(':last-child')
+          ) {
+            keyEvent.action(selector, 'next', 0);
+          } else {
+            keyEvent.action(selector, 'next', 1);
+          }
+        } else {
+          keyEvent.action(selector, 'next');
+        }
+      },
+      prev: function (selector) {
+        if (!$(selector).prev().length) {
+          keyEvent.action(selector, 'prev', 0);
+        } else if (
+          $(selector)
+            .prev()
+            .attr('aria-disabled')
+        ) {
+          if (
+            $(selector)
+              .prev()
+              .is(':first-child')
+          ) {
+            keyEvent.action(selector, 'prev', 0);
+          } else {
+            keyEvent.action(selector, 'prev', 1);
+          }
+        } else {
+          keyEvent.action(selector, 'prev');
+        }
+      }
+    };
+    const nextPassenger = {
+      element: function () {
+        return $('.passengerChoose-item')
+          .filter(function (index, element) {
+            return !$(element).attr('aria-disabled') == true;
+          })
+          .get();
+      },
+      item: function () {
+        return $('.passengerChoose-item')
+          .map(function (index, element) {
+            if (!$(element).attr('aria-disabled') == true) {
+              return $(element).index();
+            }
+          })
+          .get();
+      }
+    };
+
+    passengerSelectFixed();
+
+    $('.passengerChoose-item')
+      .on('click', function () {
+        $(this)
+          .attr({'aria-checked': true, tabindex: 0})
+          .siblings()
+          .attr({'aria-checked': false, tabindex: -1});
+        passengerSelect($(this).index());
+        $('body, html').animate({scrollTop: $('.content-form').offset().top}, 800);
+      })
+      .each(function (index, elemet) {
+        let passenger = 'p' + (index + 1);
+        let ariaBy = [];
+        passengerOnKey(this);
+        $(this)
+          .children()
+          .each(function (index) {
+            const info = 'info' + (index + 1);
+            $(this).attr('id', passenger + info);
+            ariaBy.push(passenger + info);
+          });
+        $(this).attr('aria-describedby', ariaBy.join(' '));
+      })
+      .on('keyNext', function () {
+        keyEvent.next(this);
+      })
+      .on('keyPrev', function () {
+        keyEvent.prev(this);
+      });
+
+    $('.js-passengerSelect')
+      .on('change.passenger', function (e, isTrigger) {
+        const item = $(this)
+          .find(':selected')
+          .index();
+        const text = {
+          baby: passengerContent('.is-baby', item),
+          status: passengerContent('.is-status', item)
+        };
+        const formPosition = $('.content-form').offset().top;
+        const selectFixed = $('.js-passengerChooseFixed').is(':visible');
+
+        $('.is-baby', '.passengerChoose-select').html(text.baby);
+        $('.is-status', '.passengerChoose-select').html(text.status);
+
+        $('.passengerChooseForm')
+          .eq(item)
+          .removeClass('display-none')
+          .siblings('.passengerChooseForm')
+          .addClass('display-none');
+
+        if (!isTrigger) {
+          $('.passengerChoose-item')
+            .eq(item)
+            .attr({'aria-checked': true, tabindex: 0})
+            .siblings()
+            .attr({'aria-checked': false, tabindex: -1});
+
+          if (selectFixed) {
+            $('body, html').animate({scrollTop: formPosition});
+          }
+        }
+      })
+      .trigger('change.passenger', ['isTrigger']);
+
+    $('.js-nextPassenger').on('click', function () {
+      const currentPassenger = $('.passengerChoose-item[aria-checked="true"]');
+      const currentPassengerItem = $('.passengerChoose-item[aria-checked="true"]').index();
+      const nextPassengers = nextPassenger.element();
+      const nextPassengersItem = nextPassenger.item();
+
+      $.each(nextPassengers, function (index, element) {
+        if (currentPassenger == element) {
+          index == nextPassengers.length - 1 ? nextPassengers[0].trigger('click') : element.trigger('click');
+
+          return;
+        }
+
+        if (index == nextPassengers.length - 1) {
+          const nextItem = nextPassengersItem.filter(function (value) {
+            return value > currentPassengerItem;
+          });
+
+          !nextItem[0]
+            ? $('.passengerChoose-item')
+              .eq(0)
+              .trigger('click')
+            : $('.passengerChoose-item')
+              .eq(nextItem[0])
+              .trigger('click');
+        }
+      });
+    });
+  };
+
+  function numberWithCommas (x) {
+    const parts = x.toString().split('.');
+    parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    return parts.join('.');
+  }
+  $.toReadableFormat = function (v) {
+    const lang = $('html').attr('lang');
+    const i = parseFloat(v);
+    if (isNaN(i)) {
+      return v;
+    }
+    return numberWithCommas(i);
+    /*
+    try {
+      return i.toLocaleString(lang)
+    } catch (e) {
+      try {
+        return i.toLocaleString()
+      } catch (e) {
+        return i
+      }
+    } */
+  };
+  $.fn.toReadableFormat = function () {
+    return this.each(function () {
+      if ($(this).children().length) {
+        $(this)
+          .children()
+          .toReadableFormat();
+      } else {
+        $(this).text(function (i, v) {
+          return v.replace(/\d+(\.\d+)?/g, function (v) {
+            return $.toReadableFormat(v);
+          });
+        });
+      }
+    });
+  };
+
+  $.inputMask = function () {
+    function mask (me) {
+      const hideChar = '*';
+      const target = me;
+      const maskTarget = target.prev();
+      const data = target.val();
+      const masked = data
+        .split('')
+        .map(function (text, index) {
+          return index > 2 && index < data.length - 2 ? hideChar : text;
+        })
+        .join('');
+      const isMask =
+        target
+          .nextAll('.js-maskSwitch')
+          .find('use')
+          .attr('xlink:href') == '#icon-eyeOpen';
+      const caret = [target[0].selectionStart, target[0].selectionEnd];
+
+      if (target.val().length > 5) {
+        target.nextAll('.js-maskSwitch').removeAttr('disabled');
+      } else {
+        target.nextAll('.js-maskSwitch').prop('disabled', true);
+      }
+
+      return {
+        maskTarget: maskTarget,
+        masked: masked,
+        data: data,
+        isMask: isMask,
+        caret: caret
+      };
+    }
+
+    $('.js-inputMask').each(function () {
+      $(this)
+        .clone(true)
+        .attr({type: 'text', tabindex: -1})
+        .removeAttr('id name pattern required aria-invalid data-describedBy data-required data-pattern value')
+        .addClass('form-inputMask')
+        .data('_value', function (element) {
+          return $(element)
+            .next()
+            .val();
+        })
+        .insertBefore($(this));
+
+      if ($(this).val().length) {
+        const maskVal = mask($(this));
+        const maskTarget = maskVal.maskTarget;
+        const masked = maskVal.masked;
+        maskTarget.val(masked);
+      }
+      $(this)
+        .addClass('form-inputMaskData')
+        .attr('type', 'text');
+    });
+
+    $('.form-inputMaskData')
+      .on('keydown keyup', function (e) {
+        const maskVal = mask($(this));
+        const maskTarget = maskVal.maskTarget;
+        const masked = maskVal.masked;
+        const data = maskVal.data;
+        const isMask = maskVal.isMask;
+
+        if (e.key == 'Control' || e.ctrlKey || e.shiftKey) return;
+
+        if (!isMask) {
+          maskTarget.val(data);
+        } else {
+          maskTarget.val(masked);
+        }
+      })
+      .on('input', function (e) {
+        const maskVal = mask($(this));
+        const maskTarget = maskVal.maskTarget;
+        const masked = maskVal.masked;
+        const data = maskVal.data;
+        const isMask = maskVal.isMask;
+
+        // const hideChar = '*';
+        // const target = $(this);
+        // const maskTarget = target.prev();
+        // const data = target.val();
+        // const masked = data
+        //   .split('')
+        //   .map(function(text, index) {
+        //     return index > 2 && index < data.length - 2 ? hideChar : text;
+        //   })
+        //   .join('');
+        // const isMask =
+        //   target
+        //     .nextAll('.js-maskSwitch')
+        //     .find('use')
+        //     .attr('xlink:href') == '#icon-eyeOpen';
+
+        // if (target.val().length > 5) {
+        //   target.nextAll('.js-maskSwitch').removeAttr('disabled');
+        // } else {
+        //   target.nextAll('.js-maskSwitch').prop('disabled', true);
+        // }
+
+        if (!isMask) {
+          maskTarget.val(data);
+        } else {
+          maskTarget.val(masked);
+        }
+      })
+      .on('copy cut', function (e) {
+        const maskVal = mask($(this));
+        const maskTarget = maskVal.maskTarget;
+        const masked = maskVal.masked;
+        const data = maskVal.data;
+        const isMask = maskVal.isMask;
+        const caret = maskVal.caret;
+
+        if (isMask) {
+          const newMask = masked.slice(caret[0], caret[1]);
+          if (navigator.userAgent.match(/rv:11.0/)) {
+            window.clipboardData.setData('Text', newMask);
+          } else {
+            e.originalEvent.clipboardData.setData('Text', newMask);
+          }
+        } else {
+          const newData = data.slice(caret[0], caret[1]);
+          if (navigator.userAgent.match(/rv:11.0/)) {
+            window.clipboardData.setData('Text', newData);
+          } else {
+            e.originalEvent.clipboardData.setData('Text', newData);
+          }
+        }
+
+        if (e.type == 'cut') {
+          const hideChar = '*';
+          const target = $(this);
+          const dataSet = data.split('');
+          dataSet.splice(caret[0], caret[1] - caret[0]);
+          const masked = dataSet
+            .map(function (text, index) {
+              return index > 2 && index < dataSet.length - 2 ? hideChar : text;
+            })
+            .join('');
+          target.val(dataSet.join(''))[0].setSelectionRange(caret[0], caret[0]);
+          maskTarget.val(masked);
+        }
+        e.preventDefault();
+      });
+
+    $('.js-maskSwitch').on('click', function () {
+      const hideChar = '*';
+      const isMask =
+        $(this)
+          .find('use')
+          .attr('xlink:href') == '#icon-eyeOpen';
+      const icon = isMask ? '#icon-eyeClose' : '#icon-eyeOpen';
+      const data = $(this)
+        .prevAll('.form-inputMaskData')
+        .val();
+      const masked = data
+        .split('')
+        .map(function (text, index) {
+          return index > 2 && index < data.length - 2 ? hideChar : text;
+        })
+        .join('');
+      const value = isMask ? data : masked;
+
+      $(this)
+        .prevAll('.form-inputMask')
+        .val(value);
+
+      $(this)
+        .find('use')
+        .attr('xlink:href', icon);
+    });
+  };
+
+  function createOption (x, i) {
+    return $('<option>').val(x)
+      .text(x)[0];
+  }
+  function createOptions (start, end, reverse) {
+    let data = new Array(end - start + 1);
+
+    for (var i = 0; i < data.length; i++) {
+      data[i] = 0;
+    }
+    data = data.map(function (x, i) {
+      return i + start;
+    });
+    data = reverse ? data.reverse() : data;
+    return data.map(createOption);
+  }
+  function getRanges (dt, month, MAX) {
+    const range = {};
+    let i = 0;
+    while (i < month) {
+      const newDate = new Date(dt.getFullYear(), dt.getMonth() + i++, 1);
+      if (newDate > MAX) {
+        break;
+      }
+      range[newDate.getFullYear()] = range[newDate.getFullYear()] || [];
+      range[newDate.getFullYear()].push(newDate.getMonth() + 1);
+    }
+    return range;
+  }
+  $.fn.ymRange = function (options) {
+    const now = new Date();
+    options = $.extend({
+      // 最大上限
+      upperbound: new Date(now.getFullYear(), now.getMonth(), 1),
+      // 最小下限
+      lowerbound: new Date(2000, 1, 1),
+      range: 6
+    }, options);
+
+    return this.each(function () {
+      const container = this;
+      $('.date', container).each(function () { $(this).data('init', $('option', this).val()); });
+      const $startY = $('.startY', container);
+      const $startM = $('.startM', container);
+      const $endY = $('.endY', container);
+      const $endM = $('.endM', container);
+
+      let range = {};
+
+      $startY.empty()
+        .append(createOptions(options.lowerbound.getFullYear(), options.upperbound.getFullYear(), true))
+        .val(function () { return $(this).data('init'); });
+
+      $startY.on('change', function (e, isInit) {
+        const start = ~~$(this).val() == options.lowerbound.getFullYear() ? options.lowerbound.getMonth() + 1 : 1;
+        const end = ~~$(this).val() == options.upperbound.getFullYear() ? options.upperbound.getMonth() + 1 : 12;
+
+        $startM
+          .empty()
+          .append(createOptions(start, end))
+          .val(function () { return isInit ? $(this).data('init') : $('option', this).val(); })
+          .trigger('change', isInit);
+      });
+
+      $startY.add($startM)
+        .on('change', function (e, isInit) {
+          const dt = new Date(~~$startY.val(), -1 + ~~$startM.val(), 1);
+          range = getRanges(dt, options.range, options.upperbound);
+          $endY.empty()
+            .append(Object.keys(range).reverse()
+              .map(createOption))
+            .val(function () { return isInit ? $(this).data('init') : $('option', this).val(); })
+            .trigger('change', isInit);
+        });
+
+      $endY.on('change', function (e, isInit) {
+        $endM.empty()
+          .append(
+            range[~~$(this).val()].map(createOption)
+          )
+          .val(function () { return isInit ? $(this).data('init') : $('option:last', this).val(); });
+      });
+
+      $startY.trigger('change', true);
+    });
+  };
+});

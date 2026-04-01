@@ -1,0 +1,106 @@
+﻿(function(factory) {
+  typeof define === 'function' && define.amd ? define(['jquery'], factory) : factory(jQuery);
+})(function($) {
+  let prevFocusElement = null;
+  let ringElement = null;
+  let keyboard = false;
+
+  function initialize(target) {
+    $('body').append('<flying-focus id="flying-focus" class="flying-focus_visible" tabindex="-1" />');
+    $(target).addClass('flying-focus_target');
+    ringElement = $('#flying-focus').length;
+  }
+
+  function offsetOf(element) {
+    const width = $(element).outerWidth();
+    const height = $(element).outerHeight();
+    const top = $(element).offset().top;
+    const left = $(element).offset().left;
+    return {
+      top: top || 0,
+      left: left || 0,
+      width: width,
+      height: height
+    };
+  }
+
+  function onBlur(prevFocusElement) {
+    if (!prevFocusElement) return;
+    $('#flying-focus').removeClass('flying-focus_visible');
+    prevFocusElement.removeClass('flying-focus_target');
+  }
+
+  $('body')
+    .on('keydown.flyingFocus', function(event) {
+      if (self == top && ($(document.activeElement).attr('type') == 'submit' || $(document.activeElement) == $(this))) {
+        onBlur($(document.activeElement));
+      }
+      keyboard = true;
+    })
+    .off('wheel.flyingFocus')
+    .on('mousedown.flyingFocus wheel.flyingFocus', function(event) {
+      if (self == top) {
+        event.stopImmediatePropagation();
+        onBlur(prevFocusElement);
+        keyboard = false;
+      }
+    })
+    .on('blur.flyingFocus', '*', function(event) {
+      event.stopImmediatePropagation();
+      onBlur(prevFocusElement);
+    })
+    .on('focus.flyingFocus', '*', function(event) {
+      event.stopImmediatePropagation();
+      if (!keyboard) return;
+      let target;
+      const inputType = $(document.activeElement).attr('type');
+      const navigationLinkSmall = $(document.activeElement).hasClass('js-navigationLinkTrigger');
+      if (inputType && (inputType == 'checkbox' || inputType == 'radio' || inputType == 'file')) {
+        target = $(document.activeElement).siblings('label')[0];
+      } else {
+        target = document.activeElement;
+      }
+
+      if (navigationLinkSmall) {
+        target = $(document.activeElement).parent()[0];
+      }
+
+      if (!ringElement) {
+        initialize(target);
+      }
+
+      const offset = offsetOf(target);
+      // console.log(offset)
+      $('#flying-focus')
+        .width(offset.width)
+        .height(offset.height)
+        .css({
+          top: offset.top,
+          left: offset.left
+        });
+
+      $(target).addClass('flying-focus_target');
+      $('#flying-focus').addClass('flying-focus_visible');
+      prevFocusElement = $(target);
+    });
+
+  $(window)
+    .off('resize.flyingFocus')
+    .on('resize.flyingFocus', function() {
+      if ($('#flying-focus').hasClass('flying-focus_visible')) {
+        $.flyingFocusActive();
+      }
+    });
+
+  $.flyingFocusHide = function() {
+    $('#flying-focus').css('opacity', 0);
+  };
+  $.flyingFocusShow = function() {
+    $('#flying-focus').css('opacity', 1);
+  };
+  $.flyingFocusActive = function() {
+    if ($('#flying-focus').is(':visible')) {
+      $(document.activeElement).trigger('focus.flyingFocus');
+    }
+  };
+});

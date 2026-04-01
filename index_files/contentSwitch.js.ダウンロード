@@ -1,0 +1,401 @@
+(function (factory) {
+  typeof define === 'function' && define.amd ? define(['jquery'], factory) : factory(jQuery);
+})(function ($) {
+  const action = {
+    tab: {
+      selected: function (id) {
+        $(id)
+          .attr('aria-selected', true)
+          .removeAttr('tabindex')
+          .siblings('.tab-item')
+          .attr({'aria-selected': false, tabindex: -1});
+      },
+      content: function (id, opend) {
+        $(id)
+          .removeClass('display-none')
+          .removeAttr('aria-hidden')
+          .siblings('[role="tabpanel"]')
+          // .addClass('display-none')
+          .attr('aria-hidden', true);
+
+        // console.log(id);
+
+        opend(id);
+      },
+      KeyBoard: function (target, direction) {
+        if (direction === 'prev') {
+          if (!target.prevAll('.tab-item')[0]) {
+            const last = target.nextAll('.tab-item').length - 1;
+            target.nextAll('.tab-item')[last].focus();
+          } else {
+            target.prevAll('.tab-item')[0].focus();
+          }
+        } else {
+          if (!target.nextAll('.tab-item')[0]) {
+            const first = target.prevAll('.tab-item').length - 1;
+            target.prevAll('.tab-item')[first].focus();
+          } else {
+            target.nextAll('.tab-item')[0].focus();
+          }
+        }
+      }
+    },
+    accordion: {
+      selected: function (id, isOneItem, isFooter) {
+        var isExpaned = $(id).attr('aria-expanded');
+        var triggerSelector = isFooter ? '.footer-trigger' : '.accordion-trigger';
+
+        $(id).removeAttr('tabindex');
+
+        if (isExpaned === 'true') {
+          if (isOneItem) {
+            $(id).attr('aria-expanded', false);
+          } else {
+            $(id).attr({'aria-expanded': false});
+          }
+        } else {
+          $(id)
+            .attr('aria-expanded', true)
+            .closest('.accordion-item')
+            .siblings()
+            .find(triggerSelector)
+            .attr({'aria-expanded': false});
+        }
+      },
+      content: function (id, position, isOpenItem) {
+        var isHidden = $(id).is('[aria-hidden]');
+
+        if (isHidden === false) {
+          $(id)
+            .stop()
+            .slideUp(300)
+            .attr('aria-hidden', true)
+            .prev()
+            .attr('tabindex', function () {
+              if ($(this).attr('role')) {
+                return -1;
+              }
+            });
+
+          if (!isOpenItem) {
+            $(id)
+              .focus()
+              .attr('tabindex', function () {
+                if ($(this).attr('role')) {
+                  return 0;
+                }
+              });
+          }
+        } else {
+          $(id)
+            .prev()
+            .attr('tabindex', function () {
+              if ($(this).attr('role')) {
+                return -1;
+              }
+            })
+            .end()
+            .stop()
+            .slideDown(300)
+            .removeAttr('aria-hidden')
+            .closest('.accordion-item')
+            .siblings()
+            .find('.accordion-content')
+            .stop()
+            .slideUp(300)
+            .attr('aria-hidden', true);
+
+          if (!isOpenItem) {
+            $(id)
+              .prev()
+              .focus();
+
+            $.flyingFocusHide();
+
+            $('html, body')
+              .stop()
+              .animate({scrollTop: position}, 300)
+              .promise()
+              .then(function () {
+                $.flyingFocusActive();
+                $.flyingFocusShow();
+
+                $(id)
+                  .prev()
+                  .attr('tabindex', function () {
+                    if ($(this).attr('role')) {
+                      return 0;
+                    }
+                  });
+              });
+          }
+        }
+      },
+      KeyBoard: function (target, direction, isFooter) {
+        var triggerSelector = isFooter ? '.footer-trigger' : '.accordion-trigger';
+
+        if (direction === 'prev') {
+          if (target.closest('.accordion-item').prev().length == 0) {
+            target
+              .closest('.accordion-item')
+              .siblings(':last-child')
+              .find(triggerSelector)
+              .focus();
+          } else {
+            target
+              .closest('.accordion-item')
+              .prev()
+              .find(triggerSelector)
+              .focus();
+          }
+        } else {
+          if (target.closest('.accordion-item').next().length == 0) {
+            target
+              .closest('.accordion-item')
+              .siblings(':first-child')
+              .find(triggerSelector)
+              .focus();
+          } else {
+            target
+              .closest('.accordion-item')
+              .next()
+              .find(triggerSelector)
+              .focus();
+          }
+        }
+      }
+    }
+  };
+
+  function switchEvent (selector) {
+    $(selector).on('keyup.contentSwitch keydown.contentSwitch', function (e) {
+      if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === 'Right' || e.key === 'Down') {
+        e.preventDefault();
+        if (e.type == 'keyup') {
+          $(this).trigger('keyNext');
+        }
+      } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp' || e.key === 'Left' || e.key === 'Up') {
+        e.preventDefault();
+        if (e.type == 'keyup') {
+          $(this).trigger('keyPrev');
+        }
+      } else if (e.key === 'Tab') {
+        if (e.type == 'keyup' && $(window).outerWidth() >= 600) {
+          $(this).trigger('keyTab');
+        }
+      } else if (e.type == 'keyup' && e.key === 'Enter') {
+        if ($(this).attr('role')) {
+          e.preventDefault();
+          $(this).trigger('click');
+        }
+      }
+    });
+  }
+
+  $.fn.KeySelect = function (option) {
+    var options = $.extend({direction: 'next', type: 'tab', isFooter: false}, option);
+
+    action[options.type].KeyBoard(this, options.direction, options.isFooter);
+    return this;
+  };
+
+  function tabSwitchOnResize (e) {
+    e.stopPropagation();
+    const resizeOuterWidth = $(this).outerWidth();
+
+    $('.tab--accordion').each(function () {
+      const tab = $(this).find('.tab-item--accordion');
+      const tabpanel = $(this).find('[role="tabpanel"]');
+      if ($('.tab-item--accordion').is('[aria-selected="true"]')) return;
+      if (resizeOuterWidth < 600) {
+        tab.attr('aria-selected', false);
+        tabpanel.addClass('display-none').attr('aria-hidden', true);
+      }
+    });
+
+    $('.tab--switch').each(function (e) {
+      const selectedItem = $(this).find('[aria-selected="true"]');
+      if (resizeOuterWidth >= 600) {
+        selectedItem.trigger('click');
+      }
+    });
+  }
+  $.fn.tabSwitch = function (option) {
+    option = $.extend({onSwitch: $.noop, initViaHash: true, onOpend: $.noop}, option);
+
+    $(window)
+      .off('resize.tab', tabSwitchOnResize)
+      .on('resize.tab', tabSwitchOnResize);
+    tabSwitchOnResize.call(window, {stopPropagation: $.noop});
+
+    this.each(function () {
+      switchEvent(this);
+      $(this)
+        .on('click', function (e) {
+          // console.log($(this));
+          const regExp = /switch|accordion|wide|promotion|widget/;
+          const id = '#' + $(this).attr('id');
+          const contentID = '#' + $(this).attr('aria-controls');
+          let type = $(this)
+            .attr('class')
+            .match(regExp)
+            .join('');
+          const tabID = {
+            accordion: id + ', ' + id.slice(0, -type.length),
+            switch: id + ', ' + id + 'Accordion',
+            simple: id
+          };
+
+          if ($(this).is(':not(a)')) {
+            if ($(this).attr('aria-selected') !== 'true' && $(this).is(':not(a)')) {
+              option.onSwitch($(this).attr('aria-controls'), this);
+              $(this).trigger('switch', [$(this).attr('aria-controls'), this]);
+            }
+
+            if (type === 'accordion') {
+              $(window).scrollTop(
+                $(this)
+                  .parent('.tab')
+                  .offset().top
+              );
+            } else if (type === 'wide' || type === 'promotion' || type === 'widget') {
+              type = 'simple';
+            }
+
+            action['tab'].selected(tabID[type]);
+            action['tab'].content(contentID, option.onOpend);
+          }
+        })
+        .on('keyTab', function () {
+          if ($(window).outerWidth() >= 600) return;
+        })
+        .on('keyNext', function () {
+          $(this).KeySelect({direction: 'next', type: 'tab'});
+        })
+        .on('keyPrev', function () {
+          $(this).KeySelect({direction: 'prev', type: 'tab'});
+        });
+    });
+
+    if (option.initViaHash) {
+      const hash = location.hash.replace(/^#(x-)?/, '');
+      this.filter(function () {
+        return $(this).attr('aria-controls') === hash;
+      })
+        .eq(0)
+        .click();
+    }
+
+    return this;
+  };
+
+  const accordionOnResizeFunc = {};
+  function accordionOnResize (option, accordionSelector, outerWidth, outerHeight) {
+    // console.log('resize');
+    if (!accordionOnResizeFunc[accordionSelector]) {
+      accordionOnResizeFunc[accordionSelector] = function () {
+        const resizeOuterHeight = $(this).outerHeight();
+        const resizeOuterWidth = $(this).outerWidth();
+
+        // console.log({resizeOuterWidth, outerWidth, resizeOuterHeight, outerHeight});
+
+        if (resizeOuterWidth == outerWidth && resizeOuterHeight != outerHeight) return;
+
+        $(accordionSelector).each(function () {
+          $(this)
+            .children('.accordion-item')
+            .each(function (index) {
+              const triggerSelector = option.isFooter ? '.footer-trigger' : '.accordion-trigger';
+              const trigger = $(this).find(triggerSelector);
+              const content = $(this).children('.accordion-content');
+
+              if (resizeOuterWidth < 600) {
+                if (option.isFooter) {
+                  trigger.attr({'aria-expanded': false});
+                  content.attr('aria-hidden', true);
+                  trigger.removeAttr('tabindex');
+                }
+              } else {
+                if (option.isFooter) {
+                  trigger.removeAttr('aria-expanded').attr('tabindex', -1);
+                  content.removeAttr('aria-hidden style');
+                }
+              }
+            });
+        });
+      };
+    }
+    return accordionOnResizeFunc[accordionSelector];
+  }
+  $.fn.accordion = function (option) {
+    option = $.extend({isFooter: false, openItem: ''}, option);
+    const accordionSelector = option.isFooter ? '.footer-accordion' : '.accordion';
+    const outerHeight = $(window).outerHeight();
+    const outerWidth = $(window).outerWidth();
+    const resize = accordionOnResize(option, accordionSelector, outerWidth, outerHeight);
+    let isOpenItem;
+    // let position = []
+    $(window)
+      .off('resize.accordion', resize)
+      .on('resize.accordion', resize);
+    resize.call(window);
+
+    this.each(function () {
+      switchEvent(this);
+      // position.push($(this).offset().top)
+
+      $(this).attr('tabindex', function () {
+        if ($(this).attr('role')) {
+          return 0;
+        }
+      });
+
+      $(this)
+        .on('click', function (e) {
+          const id = '[aria-controls="' + $(this).attr('aria-controls') + '"]';
+          const contentID = '#' + $(this).attr('aria-controls');
+          const isOneItem = $(this).closest('.accordion-item').length === 1;
+          const item = $(this)
+            .closest('.accordion-item')
+            .index('.accordion-item');
+          const openItem = $(this)
+            .closest('.accordion, .footer-accordion, .accordionNote')
+            .find('[aria-expanded="true"]')
+            .closest('.accordion-item')
+            .index('.accordion-item');
+          const openHeight =
+            openItem != -1
+              ? $(this)
+                .closest('.accordion, .footer-accordion, .accordionNote')
+                .find('[aria-expanded="true"]')
+                .closest('.accordion-item')
+                .find('.accordion-content')
+                .outerHeight()
+              : 0;
+          const position = item > openItem ? $(this).offset().top - openHeight : $(this).offset().top;
+
+          action['accordion'].selected(id, isOneItem, option.isFooter);
+          action['accordion'].content(contentID, position, isOpenItem);
+
+          isOpenItem = false;
+        })
+        .on('keyPrev', function () {
+          $(this).KeySelect({direction: 'prev', type: 'accordion', isFooter: option.isFooter});
+        })
+        .on('keyNext', function () {
+          $(this).KeySelect({direction: 'next', type: 'accordion', isFooter: option.isFooter});
+        });
+    });
+
+    if (option.openItem) {
+      let item = $(option.openItem);
+      if (!item.is('button')) {
+        item = item.siblings('button');
+      }
+      isOpenItem = true;
+      item.trigger('click');
+    }
+
+    return this;
+  };
+});
